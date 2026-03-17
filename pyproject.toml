@@ -1,0 +1,21 @@
+[project]
+name = "nflux-ai"
+version = "0.1.0"
+description = "护理教材 AI 问答系统 - 基于 RAG 的护理学教材智能问答原型"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "chromadb>=0.5.0",
+    "langchain>=0.3.0",
+    "langchain-community>=0.3.0",
+    "langchain-text-splitters>=0.3.0",
+    "langchain-chroma>=0.1.0",
+    "pyyaml>=6.0",
+    "rerankers>=0.6.0",
+    "sentence-transformers>=2.7.0",
+    "streamlit>=1.40.0",
+]
+
+[project.scripts]
+nflux-ingest = "src.ingest:main"
+nflux-app = "src.app:main"
