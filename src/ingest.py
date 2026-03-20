@@ -5,8 +5,10 @@
 - 多维度索引构建
 - 护理程序完整性保持
 - 医学词典支持
+- 国内镜像加速
 """
 
+import os
 import re
 import json
 import hashlib
@@ -27,6 +29,14 @@ from medical_terms import (
     NURSING_PROCEDURES,
     NURSING_PROCESS_MARKERS,
 )
+
+
+def setup_huggingface_mirror(mirror_url: Optional[str] = None):
+    """设置 HuggingFace 镜像加速（国内用户）"""
+    if mirror_url is None:
+        mirror_url = os.getenv("HF_ENDPOINT", "https://hf-mirror.com")
+    os.environ["HF_ENDPOINT"] = mirror_url
+    print(f"🌐 HuggingFace 镜像: {mirror_url}")
 
 
 # 配置
@@ -361,12 +371,21 @@ class NursingIndexBuilder:
 
 def create_vectorstore(chunks: List[SemanticChunk], config: Dict[str, Any]):
     """创建向量数据库"""
+    # 设置 HuggingFace 镜像（国内加速）
+    mirror = config.get("huggingface_mirror")
+    if mirror or os.getenv("HF_ENDPOINT"):
+        setup_huggingface_mirror(mirror)
+
     print("\n🔄 加载嵌入模型...")
-    model_name = config.get("embedding_model", "text2vec-base-chinese")
+    model_name = config.get("embedding_model", "BAAI/bge-large-zh-v1.5")
+    device = config.get("embedding_device", "cpu")
     
+    print(f"   模型: {model_name}")
+    print(f"   设备: {device}")
+
     embeddings = HuggingFaceEmbeddings(
         model_name=model_name,
-        model_kwargs={"device": "cpu"},
+        model_kwargs={"device": device},
         encode_kwargs={"normalize_embeddings": True},
     )
     
