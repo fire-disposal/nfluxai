@@ -33,11 +33,6 @@ st.set_page_config(
     page_icon="🩺",
     layout="wide",
     initial_sidebar_state="auto",
-    menu_items={
-        "Getting Started": False,
-        "Report a bug": False,
-        "About": False,
-    },
 )
 
 # 自定义 CSS - 增强移动端适配
@@ -487,7 +482,8 @@ def render_chat_interface():
                         "id": msg_id,
                     })
 
-            st.rerun()
+            # 不使用 st.rerun()，让 Streamlit 自然重新渲染
+            # st.rerun() 会导致页面闪烁和滚动位置重置
 
 
 def call_llm(prompt: str, query: str, citations: List[Dict]) -> str:

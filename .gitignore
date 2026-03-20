@@ -8,3 +8,11 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Generated data (keep textbooks and index)
+data/chroma_db/
+
+# IDE
+.idea/
+.vscode/
+*.swp

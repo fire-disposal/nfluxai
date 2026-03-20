@@ -3,7 +3,7 @@
 # ===========================
 # 嵌入模型配置
 # ===========================
-embedding_model: "text2vec-base-chinese"
+embedding_model: "shibing624/text2vec-base-chinese"
 embedding_device: "cpu"
 embedding_batch_size: 32
 

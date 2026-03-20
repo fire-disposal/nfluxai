@@ -4,6 +4,7 @@
 - 语义检索 + Rerank 重排序
 - 完整的引用溯源
 - 支持列出原文来源
+- 医学词典支持
 """
 
 import os
@@ -15,6 +16,13 @@ import yaml
 from langchain_chroma import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.documents import Document
+
+from medical_terms import (
+    find_diseases_in_text,
+    find_diagnoses_in_text,
+    find_symptoms_in_text,
+    classify_content_type,
+)
 
 
 # 配置
@@ -280,7 +288,7 @@ class NursingRetriever:
         Returns:
             原文内容，如果读取失败返回 None
         """
-        filepath = Path(f"/home/firedisposal/nflux/{textbook}/{filename}")
+        filepath = PROJECT_ROOT / "data" / "textbooks" / textbook / filename
         
         if not filepath.exists():
             return None

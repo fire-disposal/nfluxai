@@ -9,7 +9,6 @@
 确保已安装 [uv](https://github.com/astral-sh/uv)：
 
 ```bash
-# 安装 uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
@@ -23,8 +22,6 @@ uv sync
 ### 3. 导入数据
 
 ```bash
-# 将三本教材向量化并存入 ChromaDB
-# 同时生成索引文件 data/index/chunks_index.json
 uv run python src/ingest.py
 ```
 
@@ -47,153 +44,120 @@ uv run streamlit run src/app.py
 ```
 nflux_ai/
 ├── src/
-│   ├── ingest.py      # 数据导入与分块 (适配教材格式)
-│   ├── retriever.py   # 检索引擎 (语义检索 + Rerank + 来源追踪)
-│   ├── llm.py         # LLM 集成 (Ollama / API)
-│   ├── app.py         # Streamlit 聊天界面 (带来源显示)
-│   ├── viewer.py      # 索引查看工具 (命令行)
-│   └── test.py        # 测试脚本
+│   ├── app.py            # Streamlit 聊天界面
+│   ├── retriever.py      # 检索引擎 (语义检索 + Rerank)
+│   ├── ingest.py         # 数据导入与智能分块
+│   ├── llm.py            # LLM 集成 (Ollama / API)
+│   ├── medical_terms.py  # 医学词典 (疾病/诊断/症状)
+│   └── test_flow.py      # 功能测试脚本
 ├── data/
-│   ├── chroma_db/     # ChromaDB 向量数据库
-│   └── index/         # 索引文件 (JSON 格式)
-│       └── chunks_index.json
-├── config.yaml        # 配置文件
-├── start.sh           # 快速启动脚本
-├── pyproject.toml     # 项目依赖
-└── README.md          # 本文件
+│   ├── textbooks/        # 教材源文件 (已内置)
+│   ├── chroma_db/        # ChromaDB 向量数据库
+│   └── index/            # 索引文件
+├── docs/
+│   ├── INDEX_DESIGN.md   # 索引设计文档
+│   └── CODE_REVIEW.md    # 代码审查报告
+├── scripts/
+│   └── copy_textbooks.py # 教材拷贝脚本
+├── config.yaml           # 配置文件
+├── main.py               # 主入口点
+├── start.sh              # 快速启动脚本
+└── pyproject.toml        # 项目依赖
 ```
 
 ---
 
 ## 📚 数据源
 
-仅处理三本核心护理教材（位于 `/home/firedisposal/nflux`）：
+三本核心护理教材已内置到 `data/textbooks/`：
 
 | 教材 | 章节数 | 内容 |
 |------|--------|------|
 | 内科护理学 | 10 章 | 呼吸、循环、消化等系统疾病护理 |
 | 外科护理学 | 45 章 | 手术、创伤、各外科专科护理 |
-| 新编护理学基础 | 22 章 | 护理程序、基础护理技术 |
+| 新编护理学基础 | 21 章 | 护理程序、基础护理技术 |
 
 ---
 
-## 🔧 分块策略
+## 🔧 核心功能
 
-系统采用**智能层级分块**策略，适配教材实际格式：
+### 医学词典
 
-### 分块逻辑
+系统内置医学词典，支持智能实体识别：
+
+| 类型 | 数量 | 说明 |
+|------|------|------|
+| 疾病名称 | 283 个 | 按系统分类（呼吸、循环、消化等） |
+| 护理诊断 | 121 个 | NANDA-I 标准诊断名称 |
+| 症状 | 50+ 个 | 常见临床症状 |
+| 护理操作 | 50+ 个 | 基础护理操作技术 |
+
+### 智能分块
+
+- 按护理程序单元分块（评估、诊断、措施、评价）
+- 保持内容语义完整性
+- 自动提取疾病、症状、护理诊断标签
+
+### 多维度索引
 
 ```
-教材文件 (.md)
+向量索引 (ChromaDB)
     │
-    ├── # 主标题 (章/节) ────→ Section
-    │       │
-    │       └── ## 小节标题 ──→ Subsection
-    │               │
-    │               └── 内容 (<50 字符跳过)
-    │
-    └── 元数据提取:
-            - 教材名称
-            - 章节号 (从文件名解析)
-            - 标题层级
-            - 行号范围 (用于原文定位)
-```
-
-### 元数据字段
-
-```json
-{
-  "chunk_id": "唯一标识",
-  "textbook": "教材名称",
-  "filename": "文件名",
-  "filepath": "完整路径",
-  "chapter_num": "章节号",
-  "chapter_title": "章节标题",
-  "section_header": "节标题",
-  "subsection_header": "小节标题",
-  "title": "完整标题",
-  "line_start": "起始行号",
-  "line_end": "结束行号",
-  "content_preview": "内容预览 (200 字符)"
-}
+    ├── 疾病索引 → 按疾病名称快速定位
+    ├── 症状索引 → 按症状检索相关护理
+    ├── 护理诊断索引 → NANDA 标准诊断名称
+    └── 章节索引 → 层级导航
 ```
 
 ---
 
-## 🔍 检索与来源追踪
-
-### 检索流程
+## 🔍 检索流程
 
 ```
 用户查询
     │
-    ├──→ 向量检索 (ChromaDB)
-    │       │
-    │       └── 返回 Top-N 相似文档
+    ├──→ 1. 实体识别 (疾病/诊断/症状)
     │
-    ├──→ Rerank 重排序 (可选)
-    │       │
-    │       └── 提高相关性精度
+    ├──→ 2. 向量检索 (ChromaDB)
     │
-    └──→ 来源格式化
-            │
-            └── [教材/章节/小节]
-```
-
-### 来源显示
-
-系统支持**完整的原文来源列出**：
-
-1. **引用标注**: 回答中标注 [1][2] 等编号
-2. **来源面板**: 显示完整来源信息
-   - 教材名称
-   - 章节标题
-   - 文件名
-   - 行号范围
-3. **原文查看**: 可选显示原文内容片段
-
----
-
-## 📋 命令行工具
-
-### 索引查看器
-
-```bash
-# 交互模式
-uv run python src/viewer.py
-
-# 列出分块统计
-uv run python src/viewer.py -l
-uv run python src/viewer.py -l 内科护理学
-
-# 搜索来源
-uv run python src/viewer.py -s 呼吸系统
-
-# 显示帮助
-uv run python src/viewer.py -h
-```
-
-### 测试脚本
-
-```bash
-# 运行完整测试
-uv run python src/test.py
+    ├──→ 3. Rerank 重排序
+    │
+    └──→ 4. 返回结果 + 来源信息
 ```
 
 ---
 
-## 🛠️ 高级用法
+## 🛠️ 配置说明
+
+### config.yaml
+
+```yaml
+# 嵌入模型
+embedding_model: "shibing624/text2vec-base-chinese"
+
+# 检索配置
+top_k: 5
+rerank: true
+
+# LLM 配置
+llm:
+  provider: "ollama"
+  model: "qwen2.5:7b"
+  temperature: 0.7
+```
 
 ### 使用 Ollama 本地 LLM
 
-1. 安装 Ollama: https://ollama.ai
-2. 下载模型：`ollama pull qwen2.5:7b`
-3. 配置 `config.yaml`:
-   ```yaml
-   llm:
-     provider: "ollama"
-     model: "qwen2.5:7b"
-   ```
+```bash
+# 安装 Ollama
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# 下载模型
+ollama pull qwen2.5:7b
+
+# 启动服务
+ollama serve
+```
 
 ### 使用 API 服务
 
@@ -204,54 +168,57 @@ llm:
   model: "gpt-3.5-turbo"
 ```
 
-支持任何 OpenAI 兼容 API（DeepSeek、智谱等）。
-
 ---
 
-## 📊 核心功能
+## 📋 命令行工具
 
-| 功能 | 说明 |
-|------|------|
-| **智能分块** | 按 Markdown 标题层级切割，适配教材格式 |
-| **语义检索** | 使用 text2vec 中文向量模型 |
-| **Rerank 重排序** | bge-reranker 提高检索精度 |
-| **引用溯源** | 回答中标注 [1][2]，可跳转原文 |
-| **来源面板** | 显示完整来源信息 (教材/章节/行号) |
-| **原文查看** | 支持读取并显示原文内容 |
-| **教材过滤** | 按内科/外科/基础护理筛选 |
-| **索引工具** | 命令行查看和搜索索引 |
+```bash
+# 导入数据
+python main.py --ingest
+
+# 启动应用
+python main.py --run
+
+# 检查数据状态
+python main.py --check
+
+# 运行测试
+uv run python src/test_flow.py
+```
 
 ---
 
 ## 🔍 示例问题
 
-- 呼吸系统疾病病人的护理评估要点
-- 护理程序的基本步骤有哪些
-- 慢性阻塞性肺疾病的护理措施
+- 肺炎病人的护理措施有哪些
+- 糖尿病酮症酸中毒的处理
+- 清理呼吸道无效的护理措施
+- 高血压病人的健康教育
 - 手术前后病人的护理注意事项
-- 静脉输液反应的预防和处理
 
 ---
 
 ## 📝 依赖列表
 
 ```toml
-chromadb>=0.5.0       # 向量数据库
-sentence-transformers # 嵌入模型
-langchain             # RAG 框架
-streamlit             # 前端界面
-pyyaml                # 配置解析
-rerankers             # Rerank 模型
+chromadb>=0.5.0           # 向量数据库
+sentence-transformers     # 嵌入模型
+langchain                 # RAG 框架
+langchain-chroma          # ChromaDB 集成
+langchain-community       # 社区组件
+streamlit                 # 前端界面
+pyyaml                    # 配置解析
+rerankers                 # Rerank 模型
 ```
 
 ---
 
 ## ⚠️ 注意事项
 
-1. **首次运行**需要先执行 `uv run python src/ingest.py` 导入数据
-2. **向量库位置**: `data/chroma_db`，如需重置直接删除该目录
-3. **索引文件**: `data/index/chunks_index.json` 包含所有分块的来源信息
-4. **内存需求**: 建议至少 4GB 可用内存（嵌入模型 + ChromaDB）
+1. **首次运行**需要先执行数据导入
+2. **向量库位置**: `data/chroma_db`
+3. **索引文件**: `data/index/`
+4. **内存需求**: 建议至少 4GB 可用内存
 5. **响应速度**: 启用 Rerank 会增加 1-2 秒延迟
 
 ---
@@ -260,25 +227,26 @@ rerankers             # Rerank 模型
 
 ### 问题：找不到相关来源
 
-**原因**: 数据未导入或向量库为空
-
-**解决**:
 ```bash
+# 重新导入数据
 uv run python src/ingest.py
 ```
 
-### 问题：无法读取原文内容
+### 问题：LLM 服务不可用
 
-**原因**: 教材路径不正确
+```bash
+# 检查 Ollama 服务
+ollama list
 
-**解决**: 确认 `nflux` 文件夹位于 `/home/firedisposal/nflux`
+# 启动服务
+ollama serve
+```
 
 ### 问题：检索结果不准确
 
-**解决**:
 1. 启用 Rerank: `config.yaml` 中设置 `rerank: true`
 2. 增加 `top_k` 值
-3. 优化查询语句，使用更专业的术语
+3. 使用更专业的医学术语
 
 ---
 
