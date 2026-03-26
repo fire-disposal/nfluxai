@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -30,6 +31,43 @@ def _resolve_api_key(service_cfg: Dict[str, Any], fallback_env: str = "") -> str
     return os.getenv(env_name, "") if env_name else ""
 
 
+def _normalize_extra_headers(raw_headers: Any) -> Dict[str, str]:
+    """将配置中的额外请求头规范化为字典。"""
+    if isinstance(raw_headers, dict):
+        return {str(k): str(v) for k, v in raw_headers.items() if v is not None}
+
+    if isinstance(raw_headers, str):
+        try:
+            parsed = json.loads(raw_headers)
+            if isinstance(parsed, dict):
+                return {str(k): str(v) for k, v in parsed.items() if v is not None}
+        except Exception:
+            return {}
+
+    return {}
+
+
+def _build_auth_headers(config: Dict[str, Any], api_key: str) -> Dict[str, str]:
+    """构建统一鉴权请求头，兼容更多 OpenAI 兼容网关。"""
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    # 常见网关要求的上下文请求头（可选）
+    referer = config.get("referer") or config.get("http_referer")
+    if referer:
+        headers["HTTP-Referer"] = str(referer)
+    app_title = config.get("x_title") or config.get("app_title")
+    if app_title:
+        headers["X-Title"] = str(app_title)
+    organization = config.get("organization")
+    if organization:
+        headers["OpenAI-Organization"] = str(organization)
+
+    headers.update(_normalize_extra_headers(config.get("extra_headers")))
+    return headers
+
+
 def get_llm_service_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     cfg = config or load_config()
     service_cfg = (cfg.get("api_services") or {}).get("llm", {}).copy()
@@ -42,6 +80,8 @@ def get_llm_service_config(config: Optional[Dict[str, Any]] = None) -> Dict[str,
     service_cfg.setdefault("max_tokens", legacy_llm.get("max_tokens", 2048))
     service_cfg.setdefault("timeout", 120)
     service_cfg.setdefault("api_key_env", "DEEPSEEK_API_KEY")
+    service_cfg.setdefault("system_prompt", legacy_llm.get("system_prompt", "你是一名专业的护理学助教。"))
+    service_cfg.setdefault("context_max_chars", 12000)
 
     provider = service_cfg.get("provider", "deepseek")
     defaults = {
@@ -204,13 +244,20 @@ def call_chat_completion(prompt: str, config: Dict[str, Any]) -> str:
         env_name = config.get("api_key_env", "LLM_API_KEY")
         raise RuntimeError(f"未配置 LLM API Key，请设置 {env_name} 或 config.yaml 中的 api_services.llm.api_key")
 
+    headers = _build_auth_headers(config, api_key)
+
     payload = {
         "model": config.get("model", "deepseek-chat"),
         "messages": [{"role": "user", "content": prompt}],
         "temperature": config.get("temperature", 0.7),
         "max_tokens": config.get("max_tokens", 2048),
     }
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    if config.get("system_prompt"):
+        payload["messages"].insert(0, {"role": "system", "content": str(config["system_prompt"])})
+
+    if config.get("top_p") is not None:
+        payload["top_p"] = config.get("top_p")
 
     try:
         response = requests.post(
