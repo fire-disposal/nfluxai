@@ -6,6 +6,12 @@
 
 ### 1. 环境准备
 
+推荐 Python 3.14（项目已升级并按 3.14 适配）：
+
+```bash
+python3 --version
+```
+
 确保已安装 [uv](https://github.com/astral-sh/uv)：
 
 ```bash
@@ -15,15 +21,17 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ### 2. 安装依赖
 
 ```bash
-cd /home/firedisposal/nflux_ai
+cd /workspace/nfluxai
 uv sync
 ```
 
-### 3. 导入数据
+### 3. （可选）手动导入数据
 
 ```bash
 uv run python src/ingest.py
 ```
+
+> 现在默认支持**自动检查 + 自动导入**，一般可直接启动应用，无需先手动执行该步骤。
 
 ### 4. 启动应用
 
@@ -32,7 +40,7 @@ uv run python src/ingest.py
 bash start.sh
 
 # 方式二：直接运行
-uv run streamlit run src/app.py
+uv run python main.py --run
 ```
 
 访问 http://localhost:8501
@@ -53,7 +61,7 @@ nflux_ai/
 ├── data/
 │   ├── textbooks/        # 教材源文件 (已内置)
 │   ├── chroma_db/        # ChromaDB 向量数据库
-│   └── index/            # 索引文件
+│   └── index/            # 索引文件(chunks_index.json/index.json)
 ├── docs/
 │   ├── INDEX_DESIGN.md   # 索引设计文档
 │   └── CODE_REVIEW.md    # 代码审查报告

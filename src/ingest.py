@@ -139,6 +139,8 @@ class SemanticChunker:
         self.config = config or {}
         self.min_chunk_size = self.config.get("min_chunk_size", 100)
         self.max_chunk_size = self.config.get("max_chunk_size", 2000)
+        self.target_chunk_size = self.config.get("chunk_size", 500)
+        self.chunk_overlap = self.config.get("chunk_overlap", 100)
     
     def chunk_file(self, filepath: Path, textbook: str) -> List[SemanticChunk]:
         """对单个文件进行语义分块"""
@@ -156,11 +158,12 @@ class SemanticChunker:
         
         # 按结构分块
         for section in structure:
-            chunk = self._create_semantic_chunk(
+            section_chunks = self._split_large_section(
                 section, lines, file_info, filepath.name
             )
-            if chunk and len(chunk.content) >= self.min_chunk_size:
-                chunks.append(chunk)
+            for chunk in section_chunks:
+                if chunk and len(chunk.content) >= self.min_chunk_size:
+                    chunks.append(chunk)
         
         return chunks
     
@@ -215,6 +218,16 @@ class SemanticChunker:
         if current:
             current["line_end"] = len(lines)
             sections.append(current)
+
+        # 文档无标题时，退化为全文分块
+        if not sections and lines:
+            sections.append({
+                "level": 1,
+                "title": "正文",
+                "line_start": 0,
+                "line_end": len(lines),
+                "chunk_type": ChunkType.GENERAL,
+            })
         
         return sections
     
@@ -304,6 +317,89 @@ class SemanticChunker:
             if proc in content:
                 found.append(proc)
         return found[:5]
+
+    def _create_chunk_from_lines(
+        self,
+        section: Dict,
+        lines: List[str],
+        file_info: Dict[str, str],
+        filename: str,
+        line_start: int,
+        line_end: int,
+        title_suffix: str = "",
+    ) -> Optional[SemanticChunk]:
+        """基于指定行范围创建 chunk。"""
+        local_section = {
+            **section,
+            "line_start": line_start,
+            "line_end": line_end,
+            "title": section["title"] + title_suffix,
+        }
+        return self._create_semantic_chunk(local_section, lines, file_info, filename)
+
+    def _split_large_section(
+        self,
+        section: Dict,
+        lines: List[str],
+        file_info: Dict[str, str],
+        filename: str,
+    ) -> List[SemanticChunk]:
+        """将过大段落按段落边界切分，避免切片偏小或语义割裂。"""
+        content_lines = lines[section["line_start"]:section["line_end"]]
+        content = "\n".join(content_lines).strip()
+        if len(content) <= self.max_chunk_size:
+            chunk = self._create_semantic_chunk(section, lines, file_info, filename)
+            return [chunk] if chunk else []
+
+        paragraphs: List[Tuple[int, str]] = []
+        for offset, raw_line in enumerate(content_lines):
+            text = raw_line.strip()
+            if not text:
+                continue
+            paragraphs.append((section["line_start"] + offset, text))
+
+        if not paragraphs:
+            return []
+
+        chunks: List[SemanticChunk] = []
+        current_group: List[Tuple[int, str]] = []
+        current_size = 0
+        piece_index = 1
+
+        def flush_group(group: List[Tuple[int, str]], idx: int):
+            if not group:
+                return
+            start = group[0][0]
+            end = group[-1][0] + 1
+            suffix = f"（片段{idx}）"
+            chunk = self._create_chunk_from_lines(
+                section, lines, file_info, filename, start, end, suffix
+            )
+            if chunk:
+                chunks.append(chunk)
+
+        for line_no, paragraph in paragraphs:
+            paragraph_len = len(paragraph)
+            if current_group and current_size + paragraph_len > self.target_chunk_size:
+                flush_group(current_group, piece_index)
+                piece_index += 1
+
+                overlap_group: List[Tuple[int, str]] = []
+                overlap_chars = 0
+                for item in reversed(current_group):
+                    overlap_group.insert(0, item)
+                    overlap_chars += len(item[1])
+                    if overlap_chars >= self.chunk_overlap:
+                        break
+
+                current_group = overlap_group
+                current_size = sum(len(item[1]) for item in current_group)
+
+            current_group.append((line_no, paragraph))
+            current_size += paragraph_len
+
+        flush_group(current_group, piece_index)
+        return chunks
 
 
 class NursingIndexBuilder:
@@ -403,8 +499,12 @@ def create_vectorstore(chunks: List[SemanticChunk], config: Dict[str, Any]):
                 "chapter_num": chunk.chapter_num,
                 "chapter_title": chunk.chapter_title,
                 "section": chunk.section,
+                "section_header": chunk.section,
+                "subsection_header": chunk.subsection,
                 "title": chunk.title,
                 "source_file": chunk.source_file,
+                "filename": chunk.source_file,
+                "filepath": f"data/textbooks/{chunk.textbook}/{chunk.source_file}",
                 "line_start": chunk.line_start,
                 "line_end": chunk.line_end,
                 "diseases": json.dumps(chunk.diseases, ensure_ascii=False),
@@ -423,7 +523,7 @@ def create_vectorstore(chunks: List[SemanticChunk], config: Dict[str, Any]):
         documents=documents,
         embedding=embeddings,
         persist_directory=str(DATA_DIR),
-        collection_name="nursing_textbooks_v2",
+        collection_name="nursing_textbooks",
     )
     
     print(f"💾 已保存到：{DATA_DIR}")
@@ -435,7 +535,7 @@ def save_chunks(chunks: List[SemanticChunk]):
     INDEX_DIR.mkdir(parents=True, exist_ok=True)
     
     data = [asdict(chunk) for chunk in chunks]
-    output_path = INDEX_DIR / "chunks_v2.json"
+    output_path = INDEX_DIR / "chunks_index.json"
     
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -446,7 +546,7 @@ def save_chunks(chunks: List[SemanticChunk]):
 def save_index(index_data: Dict):
     """保存索引数据"""
     INDEX_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = INDEX_DIR / "index_v2.json"
+    output_path = INDEX_DIR / "index.json"
     
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(index_data, f, ensure_ascii=False, indent=2)

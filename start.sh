@@ -16,12 +16,6 @@ if [ ! -d ".venv" ]; then
     exit 1
 fi
 
-# 检查向量数据库
-if [ ! -d "data/chroma_db" ]; then
-    echo "⚠️  向量数据库不存在，正在导入数据..."
-    uv run python src/ingest.py
-fi
-
 # 启动应用
 echo "🚀 启动 Streamlit 应用..."
 echo ""
@@ -29,4 +23,4 @@ echo "访问地址：http://localhost:8501"
 echo "按 Ctrl+C 停止服务"
 echo ""
 
-uv run streamlit run src/app.py --server.address localhost --server.port 8501
+uv run python main.py --run

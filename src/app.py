@@ -24,7 +24,7 @@ import streamlit as st
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from retriever import NursingRetriever, create_prompt
+from retriever import NursingRetriever
 
 
 # 页面配置 - 支持移动端响应式
@@ -447,8 +447,7 @@ def render_chat_interface():
                         st.markdown("---")
 
                     # 调用 LLM 生成回答（带超时和重试）
-                    full_prompt = create_prompt(prompt, context)
-                    response = call_llm_with_retry(full_prompt, prompt, citations, max_retries=2)
+                    response = call_llm_with_retry(context, prompt, citations, max_retries=2)
 
                     st.markdown(response)
 
@@ -486,12 +485,12 @@ def render_chat_interface():
             # st.rerun() 会导致页面闪烁和滚动位置重置
 
 
-def call_llm(prompt: str, query: str, citations: List[Dict]) -> str:
+def call_llm(context: str, query: str, citations: List[Dict]) -> str:
     """
     调用 LLM 生成回答（带超时处理）
 
     Args:
-        prompt: 完整提示词
+        context: 检索上下文
         query: 用户原始问题
         citations: 引用列表
 
@@ -501,16 +500,15 @@ def call_llm(prompt: str, query: str, citations: List[Dict]) -> str:
     from llm import generate_response
 
     # 使用 llm 模块生成回答
-    context = prompt  # prompt 已经包含完整的上下文
     return generate_response(query, context, citations)
 
 
-def call_llm_with_retry(prompt: str, query: str, citations: List[Dict], max_retries: int = 2, timeout: int = 60) -> str:
+def call_llm_with_retry(context: str, query: str, citations: List[Dict], max_retries: int = 2, timeout: int = 60) -> str:
     """
     调用 LLM 生成回答，带重试机制和超时处理
 
     Args:
-        prompt: 完整提示词
+        context: 检索上下文
         query: 用户原始问题
         citations: 引用列表
         max_retries: 最大重试次数（默认 2 次）
@@ -530,11 +528,10 @@ def call_llm_with_retry(prompt: str, query: str, citations: List[Dict], max_retr
                 return generate_friendly_fallback(query)
 
             # 调用 LLM
-            context = prompt
             response = generate_response(query, context, citations)
 
             # 检查是否是错误响应
-            if response.startswith("[Ollama 调用失败") or response.startswith("[API 调用失败"):
+            if response.startswith("[错误："):
                 raise Exception(response)
 
             # 检查是否是降级响应（无 LLM 时）

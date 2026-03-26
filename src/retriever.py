@@ -31,6 +31,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / "data" / "chroma_db"
 INDEX_DIR = PROJECT_ROOT / "data" / "index"
 INDEX_FILE = INDEX_DIR / "chunks_index.json"
+LEGACY_INDEX_FILE = INDEX_DIR / "chunks.json"
 
 
 def setup_huggingface_mirror(mirror_url: Optional[str] = None):
@@ -79,8 +80,9 @@ class NursingRetriever:
 
     def _load_index(self):
         """加载索引文件"""
-        if INDEX_FILE.exists():
-            with open(INDEX_FILE, "r", encoding="utf-8") as f:
+        index_path = INDEX_FILE if INDEX_FILE.exists() else LEGACY_INDEX_FILE
+        if index_path.exists():
+            with open(index_path, "r", encoding="utf-8") as f:
                 self._index_data = json.load(f)
 
     def initialize(self):
