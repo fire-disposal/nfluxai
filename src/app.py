@@ -487,35 +487,15 @@ def render_chat_interface():
         # st.rerun() 会导致页面闪烁和滚动位置重置
 
 
-def call_llm(context: str, query: str, citations: List[Dict]) -> str:
+def call_llm_with_retry(context: str, query: str, citations: List[Dict], max_retries: int = 2) -> str:
     """
-    调用 LLM 生成回答（带超时处理）
-
-    Args:
-        context: 检索上下文
-        query: 用户原始问题
-        citations: 引用列表
-
-    Returns:
-        LLM 生成的回答
-    """
-    from llm import generate_response
-
-    # 使用 llm 模块生成回答
-    return generate_response(query, context, citations)
-
-
-def call_llm_with_retry(context: str, query: str, citations: List[Dict], max_retries: int = 2, timeout: int = 60) -> str:
-    """
-    调用 LLM 生成回答，带重试机制和超时处理
+    调用 LLM 生成回答，带重试机制
 
     Args:
         context: 检索上下文
         query: 用户原始问题
         citations: 引用列表
         max_retries: 最大重试次数（默认 2 次）
-        timeout: 超时时间（秒）
-
     Returns:
         LLM 生成的回答
 
