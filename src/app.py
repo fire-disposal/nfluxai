@@ -527,19 +527,14 @@ def call_llm_with_retry(context: str, query: str, citations: List[Dict], max_ret
         try:
             # 无引用时的降级处理
             if not citations:
-                return generate_friendly_fallback(query)
+                return generate_friendly_fallback(query, error=None, citations=None)
 
             # 调用 LLM
             response = generate_response(query, context, citations)
 
             # 检查是否是错误响应
-            if response.startswith("[错误："):
+            if isinstance(response, str) and response.startswith("[错误："):
                 raise Exception(response)
-
-            # 检查是否是降级响应（无 LLM 时）
-            if "部署完整 LLM 后" in response or "无法找到与您的问题直接相关的内容" in response:
-                # 降级响应也是有效响应，直接返回
-                return response
 
             return response
 
@@ -550,14 +545,14 @@ def call_llm_with_retry(context: str, query: str, citations: List[Dict], max_ret
                 st.warning(f"⚠️ LLM 调用失败，正在重试 ({attempt + 1}/{max_retries})...")
                 time.sleep(1.0 * (attempt + 1))  # 递增延迟
             else:
-                # 所有重试失败，返回友好降级提示
-                return generate_friendly_fallback(query, str(e))
+                # 所有重试失败，返回友好降级提示（包含错误摘要和检索到的引用摘要）
+                return generate_friendly_fallback(query, error=str(e), citations=citations)
 
     # 理论上不会到这里
-    return generate_friendly_fallback(query, str(last_error) if last_error else "未知错误")
+    return generate_friendly_fallback(query, error=str(last_error) if last_error else "未知错误", citations=citations)
 
 
-def generate_friendly_fallback(query: str, error: str = None) -> str:
+def generate_friendly_fallback(query: str, error: str = None, citations: List[Dict] = None) -> str:
     """
     生成友好的降级提示（当 LLM 不可用时）
 
@@ -568,35 +563,35 @@ def generate_friendly_fallback(query: str, error: str = None) -> str:
     Returns:
         友好的降级响应
     """
-    response = """## 📚 基于检索结果的信息
+    # 更友好且实用的降级提示：说明原因、提供简要诊断信息，列出检索到的顶级引用摘要，并给出可执行建议
+    lines = []
+    lines.append("## 📚 基于检索到的参考资料（已在页面上列出）")
 
-根据护理教材资料，以下是相关参考资料：
+    if error:
+        lines.append(f"⚠️ 系统提示：无法调用 LLM 服务 — {error}")
+    else:
+        lines.append("⚠️ 系统提示：LLM 服务暂不可用，无法生成自然语言回答。")
 
-"""
-    # 这里会由调用方补充引用信息
-    response += """
----
-### 💡 温馨提示
+    # 如果有引用，列出前 3 条简短摘要，帮助用户快速获取信息
+    if citations:
+        lines.append("")
+        lines.append("以下为本次检索命中的摘要（仅展示前 3 条）：")
+        for cite in citations[:3]:
+            idx = cite.get("index")
+            src = cite.get("source")
+            snippet = cite.get("content", "").replace("\n", " ")[:200]
+            lines.append(f"- [{idx}] {src}: {snippet}...")
 
-当前 LLM 服务暂时不可用，您可以：
+    lines.append("")
+    lines.append("可执行操作：")
+    lines.append("1. 稍后重试（网络或服务短暂问题常能自愈）。")
+    lines.append("2. 如果需要立刻答案，请直接查看上方来源并拼接原文段落。")
+    lines.append("3. 检查服务配置：环境变量或 config.yaml 中的 api_services.llm.api_key / api_url。")
+    lines.append("4. 查看启动日志（控制台）以获取完整的错误堆栈，或联系管理员提供日志。")
+    lines.append("")
+    lines.append("提示：你也可以尝试简化问题或去掉部分上下文后重试，以减少请求体大小。")
 
-1. **检查 LLM 服务状态**
-   - 检查 `api_services.llm.api_url` 是否可访问
-   - 检查 `api_services.llm.api_key` 或环境变量是否正确配置
-
-2. **检查配置**
-   - 查看 `config.yaml` 中 `api_services` 的 LLM/Embedding/Rerank 配置
-   - 确认所填模型名称与服务端支持的模型一致
-
-3. **替代方案**
-   - 以上已列出相关教材参考资料
-   - 可直接查阅教材原文获取详细信息
-   - 咨询专业教师或同学
-
----
-*系统已尽力为您检索相关资料，部署完整 LLM 后可获得更准确、结构化的回答。*
-"""
-    return response
+    return "\n\n".join(lines)
 
 
 def main():
