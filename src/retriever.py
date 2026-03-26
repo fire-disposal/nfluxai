@@ -16,7 +16,14 @@ import yaml
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 
-from model_clients import ApiTextEmbeddings, ApiReranker, get_embedding_service_config, get_rerank_service_config
+from model_clients import (
+    ApiTextEmbeddings,
+    ApiReranker,
+    get_embedding_service_config,
+    get_rerank_service_config,
+    get_llm_service_config,
+    call_chat_completion,
+)
 
 
 # 配置
@@ -70,6 +77,17 @@ class NursingRetriever:
         print(f"   model: {embedding_cfg.get('model')}")
         self.embeddings = ApiTextEmbeddings(embedding_cfg)
 
+        # 对嵌入服务做一次快速自检并输出详细错误信息
+        try:
+            print("   ▶️ 测试嵌入 API: 正在请求示例向量...")
+            vec = self.embeddings.embed_query("测试嵌入")
+            if not isinstance(vec, list) or not all(isinstance(x, (float, int)) for x in vec):
+                raise RuntimeError(f"嵌入返回的数据类型异常: {type(vec)}")
+            print(f"   ✅ 嵌入服务响应正常，向量长度={len(vec)}")
+        except Exception as e:
+            print(f"   ❌ 嵌入服务自检失败: {e}")
+            print("     建议: 检查 config.yaml 中 api_services.embedding.api_url 和 API Key 配置，或网络/防火墙设置。")
+
         print("📂 加载向量数据库...")
         self.vectorstore = Chroma(
             persist_directory=str(DATA_DIR),
@@ -85,6 +103,21 @@ class NursingRetriever:
             try:
                 print(f"🔄 初始化重排序 API 服务: {rerank_cfg.get('api_url')} (model={rerank_cfg.get('model')})")
                 self.reranker = ApiReranker(rerank_cfg)
+
+                # 对 rerank 做一次快速自检（使用本地小样本）并输出详细错误信息
+                try:
+                    from langchain_core.documents import Document as _Doc
+
+                    print("   ▶️ 测试 Rerank: 使用示例文档进行打分请求...")
+                    docs = [_Doc(page_content="示例文本 A"), _Doc(page_content="示例文本 B")]
+                    ranks = self.reranker.rank(query="测试排序", docs=docs, doc_ids=[0, 1])
+                    if not isinstance(ranks, list) or not ranks:
+                        raise RuntimeError(f"Rerank 返回异常: {ranks}")
+                    print(f"   ✅ Rerank 服务响应正常，返回 {len(ranks)} 个分数")
+                except Exception as e:
+                    print(f"   ❌ Rerank 自检失败: {e}")
+                    print("     建议: 检查 api_services.rerank.api_url、api_key，以及远程服务是否可用。将使用纯向量检索作为回退。")
+                    self.reranker = None
             except Exception as e:
                 print(f"⚠️ 初始化重排序服务失败: {e}，将使用纯向量检索")
                 self.reranker = None
@@ -93,6 +126,18 @@ class NursingRetriever:
             self.reranker = None
 
         self._initialized = True
+        # 启动时同时对 LLM 服务做一次轻量自检（不抛出异常，仅记录）
+        try:
+            llm_cfg = get_llm_service_config(self.config)
+            print(f"🔄 LLM 自检: provider={llm_cfg.get('provider')} model={llm_cfg.get('model')}")
+            resp = call_chat_completion("请简要回复：系统健康检查。", llm_cfg)
+            if isinstance(resp, str) and resp.startswith("[错误："):
+                raise RuntimeError(resp)
+            print("   ✅ LLM 服务响应正常（已返回文本）。")
+        except Exception as e:
+            print(f"   ❌ LLM 自检失败: {e}")
+            print("     建议: 检查 config.yaml 中 api_services.llm 的配置和 API Key。系统仍可继续运行，但部分生成功能可能不可用。")
+
         print("✅ 检索器初始化完成")
 
     def search(

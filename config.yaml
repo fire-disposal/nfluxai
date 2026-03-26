@@ -19,7 +19,7 @@ api_services:
     provider: "deepseek"
     model: "deepseek-chat"
     api_url: "https://api.deepseek.com/v1/chat/completions"
-    api_key: ""
+    api_key: "sk-d8b25bc25e2f4192b39ee3bf4f69eaef"
     api_key_env: "DEEPSEEK_API_KEY"
     temperature: 0.7
     max_tokens: 2048
@@ -28,18 +28,18 @@ api_services:
   embedding:
     provider: "siliconflow"
     model: "BAAI/bge-m3"
-    api_url: "https://api.siliconflow.example/v1/embeddings"  # 替换为真实地址
-    api_key: ""
+    api_url: "https://api.siliconflow.cn/v1/embeddings"  # 替换为真实地址
+    api_key: "sk-wkduxtkeztckkquyroholzjpbrxvwjurquajrltjylxiqyak"
     api_key_env: "SILICON_FLOW_API_KEY"
     timeout: 120
     batch_size: 32
 
   rerank:
     enabled: true
-    provider: "http"
-    model: "BAAI/bge-reranker-large"
-    api_url: ""  # 例如: https://rerank.example/v1/rank
-    api_key: ""
-    api_key_env: "RERANK_API_KEY"
+    provider: "siliconflow"
+    model: "BAAI/bge-reranker-v2-m3"
+    api_url: "https://api.siliconflow.cn/v1/rerank"
+    api_key: "sk-wkduxtkeztckkquyroholzjpbrxvwjurquajrltjylxiqyak"
+    api_key_env: "SILICON_FLOW_API_KEY"
     timeout: 30
     top_n: 20

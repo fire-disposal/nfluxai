@@ -144,40 +144,65 @@ class ApiReranker:
         self.timeout = int(config.get("timeout", 30))
 
     def rank(self, query: str, docs: List[Any], doc_ids: List[int]):
-        payload = {
-            "model": self.model,
-            "query": query,
-            "docs": [doc.page_content for doc in docs],
-            "doc_ids": doc_ids,
-        }
+        base_docs = [doc.page_content for doc in docs]
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
+
+        # 尝试多种可能的请求体格式以兼容不同厂商的 Rerank API
+        # 使用 Siliconflow 官方示例的固定请求格式
+        payload = {"model": self.model, "query": query, "documents": base_docs}
 
         try:
             resp = requests.post(self.api_url, json=payload, headers=headers, timeout=self.timeout)
             resp.raise_for_status()
             data = resp.json()
         except requests.RequestException as e:
+            resp = getattr(e, "response", None)
+            if resp is not None:
+                raise RuntimeError(f"远程 Rerank 请求失败: {resp.status_code} {resp.text}") from e
             raise RuntimeError(f"远程 Rerank 请求失败: {e}") from e
 
+        # 解析常见返回格式
         if isinstance(data, dict) and "scores" in data:
             scores = data["scores"]
             if len(scores) != len(docs):
                 raise RuntimeError("远程 Rerank 返回 scores 数量与 docs 不一致")
             return [SimpleNamespace(doc_id=i, score=float(s)) for i, s in enumerate(scores)]
+
         if isinstance(data, dict) and "ranked" in data:
             return [SimpleNamespace(doc_id=int(i["doc_id"]), score=float(i["score"])) for i in data["ranked"]]
-        raise RuntimeError(f"无法解析远程 Rerank 返回: {data}")
+
+        # Siliconflow 风格返回: {"id":..., "results":[{"index":0,"document":...,"relevance_score":...}, ...]}
+        if isinstance(data, dict) and "results" in data and isinstance(data["results"], list):
+            results = []
+            for item in data["results"]:
+                if not isinstance(item, dict):
+                    continue
+                idx = item.get("index")
+                score = item.get("relevance_score") or item.get("score")
+                if idx is None or score is None:
+                    # 有时返回没有 index，但按顺序对应原文档
+                    continue
+                results.append(SimpleNamespace(doc_id=int(idx), score=float(score)))
+            if results:
+                return results
+
+        if isinstance(data, list) and all(isinstance(it, dict) and ("score" in it) for it in data):
+            results = []
+            for i, it in enumerate(data):
+                idx0 = int(it.get("index", i))
+                results.append(SimpleNamespace(doc_id=idx0, score=float(it["score"])))
+            return results
+
+        raise RuntimeError(f"无法解析远程 Rerank 返回: {data}\n建议: 请参照 Siliconflow 文档，确保请求体使用 'documents' 字段并使用正确的 API Key 和 URL。")
 
 
 def call_chat_completion(prompt: str, config: Dict[str, Any]) -> str:
     api_key = config.get("api_key", "")
     if not api_key:
         env_name = config.get("api_key_env", "LLM_API_KEY")
-        raise RuntimeError(
-            f"未配置 LLM API Key，请设置 {env_name} 或 config.yaml 中的 api_services.llm.api_key"
-        )
+        raise RuntimeError(f"未配置 LLM API Key，请设置 {env_name} 或 config.yaml 中的 api_services.llm.api_key")
 
     payload = {
         "model": config.get("model", "deepseek-chat"),
@@ -196,20 +221,20 @@ def call_chat_completion(prompt: str, config: Dict[str, Any]) -> str:
         )
         response.raise_for_status()
         data = response.json()
-        return data["choices"][0]["message"]["content"]
-    except requests.exceptions.Timeout:
-        raise RuntimeError("LLM API 请求超时，请稍后重试")
-    except requests.HTTPError as e:
-        detail = ""
-        if e.response is not None:
-            try:
-                detail = e.response.text[:500]
-            except Exception:
-                detail = ""
-            status = e.response.status_code
-            raise RuntimeError(f"LLM API HTTP {status} 错误: {detail}") from e
-        raise RuntimeError(f"LLM API HTTP 错误: {e}") from e
-    except (KeyError, IndexError, TypeError, ValueError) as e:
-        raise RuntimeError(f"LLM API 响应解析失败: {e}") from e
+        # 兼容不同返回结构
+        try:
+            return data["choices"][0]["message"]["content"]
+        except Exception:
+            # 直接尝试常见路径
+            if isinstance(data, dict) and "content" in data:
+                return data["content"]
+            raise RuntimeError(f"无法解析 LLM 返回的响应结构: {data}")
+    except requests.exceptions.Timeout as e:
+        raise RuntimeError("LLM API 请求超时，请稍后重试") from e
     except requests.RequestException as e:
+        resp = getattr(e, "response", None)
+        if resp is not None:
+            raise RuntimeError(f"远程 LLM 请求失败: {resp.status_code} {resp.text}") from e
         raise RuntimeError(f"LLM API 请求失败: {e}") from e
+    except Exception as e:
+        raise RuntimeError(f"处理 LLM 返回时出错: {e}") from e
