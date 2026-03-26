@@ -517,30 +517,18 @@ def call_llm_with_retry(context: str, query: str, citations: List[Dict], max_ret
         timeout: 超时时间（秒）
 
     Returns:
-        LLM 生成的回答或降级响应
+        LLM 生成的回答
     """
-    from llm import generate_response, get_llm_config
+    from llm import generate_response
 
     last_error = None
 
     for attempt in range(max_retries + 1):
         try:
-            # 无引用时的降级处理
             if not citations:
-                return generate_friendly_fallback(query)
+                raise ValueError("未找到足够相关的教材内容，无法生成带引用回答")
 
-            # 调用 LLM
             response = generate_response(query, context, citations)
-
-            # 检查是否是错误响应
-            if response.startswith("[错误："):
-                raise Exception(response)
-
-            # 检查是否是降级响应（无 LLM 时）
-            if "部署完整 LLM 后" in response or "无法找到与您的问题直接相关的内容" in response:
-                # 降级响应也是有效响应，直接返回
-                return response
-
             return response
 
         except Exception as e:
@@ -550,53 +538,9 @@ def call_llm_with_retry(context: str, query: str, citations: List[Dict], max_ret
                 st.warning(f"⚠️ LLM 调用失败，正在重试 ({attempt + 1}/{max_retries})...")
                 time.sleep(1.0 * (attempt + 1))  # 递增延迟
             else:
-                # 所有重试失败，返回友好降级提示
-                return generate_friendly_fallback(query, str(e))
+                raise RuntimeError(f"LLM 调用失败（已重试 {max_retries} 次）: {e}") from e
 
-    # 理论上不会到这里
-    return generate_friendly_fallback(query, str(last_error) if last_error else "未知错误")
-
-
-def generate_friendly_fallback(query: str, error: str = None) -> str:
-    """
-    生成友好的降级提示（当 LLM 不可用时）
-
-    Args:
-        query: 用户问题
-        error: 错误信息（可选）
-
-    Returns:
-        友好的降级响应
-    """
-    response = """## 📚 基于检索结果的信息
-
-根据护理教材资料，以下是相关参考资料：
-
-"""
-    # 这里会由调用方补充引用信息
-    response += """
----
-### 💡 温馨提示
-
-当前 LLM 服务暂时不可用，您可以：
-
-1. **检查 LLM 服务状态**
-   - 检查 `api_services.llm.api_url` 是否可访问
-   - 检查 `api_services.llm.api_key` 或环境变量是否正确配置
-
-2. **检查配置**
-   - 查看 `config.yaml` 中 `api_services` 的 LLM/Embedding/Rerank 配置
-   - 确认所填模型名称与服务端支持的模型一致
-
-3. **替代方案**
-   - 以上已列出相关教材参考资料
-   - 可直接查阅教材原文获取详细信息
-   - 咨询专业教师或同学
-
----
-*系统已尽力为您检索相关资料，部署完整 LLM 后可获得更准确、结构化的回答。*
-"""
-    return response
+    raise RuntimeError(f"LLM 调用失败: {last_error if last_error else '未知错误'}")
 
 
 def main():

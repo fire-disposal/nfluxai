@@ -175,7 +175,9 @@ def call_chat_completion(prompt: str, config: Dict[str, Any]) -> str:
     api_key = config.get("api_key", "")
     if not api_key:
         env_name = config.get("api_key_env", "LLM_API_KEY")
-        return f"[错误：未配置 LLM API Key，请设置 {env_name} 或 config.yaml 中的 api_services.llm.api_key]"
+        raise RuntimeError(
+            f"未配置 LLM API Key，请设置 {env_name} 或 config.yaml 中的 api_services.llm.api_key"
+        )
 
     payload = {
         "model": config.get("model", "deepseek-chat"),
@@ -193,8 +195,21 @@ def call_chat_completion(prompt: str, config: Dict[str, Any]) -> str:
             timeout=int(config.get("timeout", 120)),
         )
         response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
+        data = response.json()
+        return data["choices"][0]["message"]["content"]
     except requests.exceptions.Timeout:
-        return "[错误：LLM API 请求超时，请稍后重试]"
-    except Exception as e:
-        return f"[错误：{e}]"
+        raise RuntimeError("LLM API 请求超时，请稍后重试")
+    except requests.HTTPError as e:
+        detail = ""
+        if e.response is not None:
+            try:
+                detail = e.response.text[:500]
+            except Exception:
+                detail = ""
+            status = e.response.status_code
+            raise RuntimeError(f"LLM API HTTP {status} 错误: {detail}") from e
+        raise RuntimeError(f"LLM API HTTP 错误: {e}") from e
+    except (KeyError, IndexError, TypeError, ValueError) as e:
+        raise RuntimeError(f"LLM API 响应解析失败: {e}") from e
+    except requests.RequestException as e:
+        raise RuntimeError(f"LLM API 请求失败: {e}") from e
