@@ -99,13 +99,16 @@ def test_index_files():
     index_dir = PROJECT_ROOT / "data" / "index"
     
     # 检查分块文件
-    chunks_file = index_dir / "chunks.json"
-    if chunks_file.exists():
-        with open(chunks_file, "r", encoding="utf-8") as f:
+    chunks_file = index_dir / "chunks_index.json"
+    legacy_chunks_file = index_dir / "chunks.json"
+    selected_chunks_file = chunks_file if chunks_file.exists() else legacy_chunks_file
+
+    if selected_chunks_file.exists():
+        with open(selected_chunks_file, "r", encoding="utf-8") as f:
             chunks = json.load(f)
-        print(f"  ✅ chunks.json: {len(chunks)} 个分块")
+        print(f"  ✅ {selected_chunks_file.name}: {len(chunks)} 个分块")
     else:
-        print(f"  ❌ chunks.json 不存在")
+        print(f"  ❌ chunks_index.json / chunks.json 不存在")
         return False
     
     # 检查索引文件

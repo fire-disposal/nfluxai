@@ -19,6 +19,9 @@ PROJECT_ROOT = Path(__file__).parent
 DATA_DIR = PROJECT_ROOT / "data" / "chroma_db"
 INDEX_DIR = PROJECT_ROOT / "data" / "index"
 INDEX_FILE = INDEX_DIR / "chunks_index.json"
+STRUCTURED_INDEX_FILE = INDEX_DIR / "index.json"
+LEGACY_INDEX_FILE = INDEX_DIR / "chunks.json"
+LEGACY_STRUCTURED_INDEX_FILE = INDEX_DIR / "index_v2.json"
 
 
 def check_data_files() -> bool:
@@ -37,8 +40,12 @@ def check_data_files() -> bool:
         missing.append(f"向量库目录为空：{DATA_DIR}")
 
     # 检查索引文件
-    if not INDEX_FILE.exists():
-        missing.append(f"索引文件：{INDEX_FILE}")
+    if not (INDEX_FILE.exists() or LEGACY_INDEX_FILE.exists()):
+        missing.append(f"索引文件：{INDEX_FILE}（或兼容文件 {LEGACY_INDEX_FILE.name}）")
+    if not (STRUCTURED_INDEX_FILE.exists() or LEGACY_STRUCTURED_INDEX_FILE.exists()):
+        missing.append(
+            f"结构化索引文件：{STRUCTURED_INDEX_FILE}（或兼容文件 {LEGACY_STRUCTURED_INDEX_FILE.name}）"
+        )
 
     if missing:
         print("❌ 以下必要数据文件缺失:")
@@ -50,8 +57,12 @@ def check_data_files() -> bool:
     return True
 
 
-def run_ingest():
+def run_ingest(force: bool = False):
     """运行数据导入脚本"""
+    if not force and check_data_files():
+        print("ℹ️ 数据已就绪，跳过导入")
+        return
+
     print("=" * 60)
     print("开始导入护理教材数据...")
     print("=" * 60)
@@ -75,15 +86,29 @@ def run_ingest():
     print("\n✅ 数据导入完成")
 
 
-def run_app():
+def ensure_data_ready(auto_ingest: bool = True) -> bool:
+    """确保数据可用。"""
+    if check_data_files():
+        return True
+
+    if not auto_ingest:
+        return False
+
+    print("\n🔄 检测到数据缺失，自动执行数据导入...")
+    run_ingest(force=True)
+    print("\n🔁 再次检查数据文件...")
+    return check_data_files()
+
+
+def run_app(auto_ingest: bool = True):
     """启动 Streamlit 应用"""
     print("=" * 60)
     print("启动护理教材 AI 问答系统...")
     print("=" * 60)
 
-    # 先检查数据文件
-    if not check_data_files():
-        print("\n💡 请先运行数据导入:")
+    # 先检查数据文件（支持自动导入）
+    if not ensure_data_ready(auto_ingest=auto_ingest):
+        print("\n💡 可手动运行数据导入:")
         print(f"   {sys.argv[0]} --ingest")
         print(f"   或 python {sys.argv[0]} --ingest")
         sys.exit(1)
@@ -135,14 +160,19 @@ def main():
         action="store_true",
         help="仅检查数据文件状态"
     )
+    parser.add_argument(
+        "--no-auto-ingest",
+        action="store_true",
+        help="启动应用时不自动导入缺失数据"
+    )
 
     args = parser.parse_args()
 
     # 根据参数执行相应操作
     if args.ingest:
-        run_ingest()
+        run_ingest(force=True)
     elif args.run:
-        run_app()
+        run_app(auto_ingest=not args.no_auto_ingest)
     elif args.check:
         if check_data_files():
             sys.exit(0)
@@ -150,7 +180,7 @@ def main():
             sys.exit(1)
     else:
         # 默认行为：启动应用
-        run_app()
+        run_app(auto_ingest=not args.no_auto_ingest)
 
 
 if __name__ == "__main__":
