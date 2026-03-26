@@ -146,11 +146,15 @@ def test_config():
     with open(config_file, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
     
-    print(f"  嵌入模型: {config.get('embedding_model')}")
+    embedding_cfg = config.get("api_services", {}).get("embedding", {})
+    rerank_cfg = config.get("api_services", {}).get("rerank", {})
+    llm_cfg = config.get("api_services", {}).get("llm", {})
+
+    print(f"  嵌入模型: {embedding_cfg.get('model')}")
     print(f"  Top-K: {config.get('top_k')}")
-    print(f"  Rerank: {config.get('rerank')}")
-    print(f"  LLM Provider: {config.get('llm', {}).get('provider')}")
-    print(f"  LLM Model: {config.get('llm', {}).get('model')}")
+    print(f"  Rerank: {rerank_cfg.get('enabled')}")
+    print(f"  LLM Provider: {llm_cfg.get('provider')}")
+    print(f"  LLM Model: {llm_cfg.get('model')}")
     
     return True
 

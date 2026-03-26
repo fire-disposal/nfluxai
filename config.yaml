@@ -1,54 +1,45 @@
-# 护理教材 AI 系统配置
-# ===========================
+# 护理教材 AI 系统配置（统一 API 服务结构）
 
 # ===========================
-# 嵌入模型配置 (国内镜像)
+# 文本分块配置
 # ===========================
-embedding_batch_size: 32
-
-# Silicon Flow 在线嵌入配置（精简）
-# 请填写你的 Silicon Flow 嵌入端点并配置 API Key（或使用环境变量 SILICON_FLOW_API_KEY）
-use_silicon_flow: true
-silicon_flow_api_url: "https://api.siliconflow.example/v1/embeddings"  # 请替换为实际 Silicon Flow API 地址
-silicon_flow_api_key: ""  # 或设置环境变量 SILICON_FLOW_API_KEY
-silicon_flow_model: "BAAI/bge-m3"  # 远程嵌入模型，已指定为 BAAI/bge-m3
-
-# ===========================
-# 分块配置
-# ===========================
-chunk_size: 500                   # 每块最大 token 数
-chunk_overlap: 100                # 块重叠
+chunk_size: 500
+chunk_overlap: 100
 
 # ===========================
 # 检索配置
 # ===========================
-top_k: 5                          # 默认返回数量
-rerank: true                      # 是否启用 Rerank
-rerank_model: "BAAI/bge-reranker-large"  # Rerank 模型（名称仅用于记录/远程服务选择）
-rerank_top_n: 20                  # Rerank 筛选数量
-
-# ================ Rerank 重排序（远程服务） ==================
-# 系统默认不在本地下载大型 rerank 模型，而是通过 HTTP 调用远程重排序服务。
-# 配置说明：
-# - rerank_use_remote: 是否使用远程 rerank 服务（true/false）
-# - rerank_api_url: 远程 rerank 服务地址（例如 https://my-rerank.example/api/rank）
-# - rerank_api_key: 如果服务需要身份认证，可在此填写或通过环境变量 RERANK_API_KEY 提供
-rerank_use_remote: true
-rerank_api_url: ""         # 例如: "https://rerank.example/v1/rank"，未配置则不会尝试远程 rerank
-rerank_api_key: ""
+top_k: 5
 
 # ===========================
-# LLM 配置 - DeepSeek API
+# API 服务统一配置
 # ===========================
-llm:
-  provider: "deepseek"
-  model: "deepseek-chat"          # 或 "deepseek-reasoner" for R1
-  api_key: ""                     # 从环境变量 DEEPSEEK_API_KEY 读取
-  api_base: "https://api.deepseek.com/v1/chat/completions"
-  temperature: 0.7
-  max_tokens: 2048
+api_services:
+  llm:
+    provider: "deepseek"
+    model: "deepseek-chat"
+    api_url: "https://api.deepseek.com/v1/chat/completions"
+    api_key: ""
+    api_key_env: "DEEPSEEK_API_KEY"
+    temperature: 0.7
+    max_tokens: 2048
+    timeout: 120
 
-# ===========================
-# 环境变量说明
-# ===========================
-# DEEPSEEK_API_KEY: DeepSeek API 密钥
+  embedding:
+    provider: "siliconflow"
+    model: "BAAI/bge-m3"
+    api_url: "https://api.siliconflow.example/v1/embeddings"  # 替换为真实地址
+    api_key: ""
+    api_key_env: "SILICON_FLOW_API_KEY"
+    timeout: 120
+    batch_size: 32
+
+  rerank:
+    enabled: true
+    provider: "http"
+    model: "BAAI/bge-reranker-large"
+    api_url: ""  # 例如: https://rerank.example/v1/rank
+    api_key: ""
+    api_key_env: "RERANK_API_KEY"
+    timeout: 30
+    top_n: 20
