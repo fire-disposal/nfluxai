@@ -14,12 +14,7 @@ def get_llm_config() -> Dict[str, Any]:
 def generate_response(prompt: str, context: str, citations: List[Dict]) -> str:
     """生成 LLM 回答。"""
     if not citations:
-        return """抱歉，根据现有教材资料，我无法找到与您问题直接相关的内容。
-
-请尝试：
-1. 换一种问法
-2. 使用更专业的医学术语
-3. 咨询专业教师或参考教材原文"""
+        raise ValueError("未检索到可引用的教材片段，无法生成可靠回答")
 
     config = get_llm_config()
     full_prompt = f"""你是一名专业的护理学助教，基于提供的参考资料回答用户问题。
@@ -40,13 +35,3 @@ def generate_response(prompt: str, context: str, citations: List[Dict]) -> str:
 ## 回答
 """
     return call_chat_completion(full_prompt, config)
-
-
-def _fallback_response(prompt: str, context: str, citations: List[Dict]) -> str:
-    response = "根据护理教材资料，以下是相关信息：\n\n"
-    for i, cite in enumerate(citations[:3], 1):
-        title = cite.get("metadata", {}).get("title", cite.get("metadata", {}).get("header", "相关内容"))
-        source = cite.get("source", "")
-        response += f"**{source}** [{i}]\n{title}\n\n"
-    response += "---\n*注：部署完整 LLM API 服务后可获得更准确的回答。*"
-    return response

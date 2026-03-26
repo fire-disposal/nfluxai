@@ -517,19 +517,17 @@ def call_llm_with_retry(context: str, query: str, citations: List[Dict], max_ret
         timeout: 超时时间（秒）
 
     Returns:
-        LLM 生成的回答或降级响应
+        LLM 生成的回答
     """
-    from llm import generate_response, get_llm_config
+    from llm import generate_response
 
     last_error = None
 
     for attempt in range(max_retries + 1):
         try:
-            # 无引用时的降级处理
             if not citations:
                 return generate_friendly_fallback(query, error=None, citations=None)
 
-            # 调用 LLM
             response = generate_response(query, context, citations)
 
             # 检查是否是错误响应
