@@ -518,6 +518,9 @@ def call_llm_with_retry(context: str, query: str, citations: List[Dict], max_ret
 
     Returns:
         LLM 生成的回答
+
+    Raises:
+        Exception: 当 LLM 调用失败时直接抛出异常
     """
     from llm import generate_response
 
@@ -526,7 +529,7 @@ def call_llm_with_retry(context: str, query: str, citations: List[Dict], max_ret
     for attempt in range(max_retries + 1):
         try:
             if not citations:
-                return generate_friendly_fallback(query, error=None, citations=None)
+                raise ValueError("未检索到可引用的教材片段，无法生成可靠回答")
 
             response = generate_response(query, context, citations)
 
@@ -543,53 +546,11 @@ def call_llm_with_retry(context: str, query: str, citations: List[Dict], max_ret
                 st.warning(f"⚠️ LLM 调用失败，正在重试 ({attempt + 1}/{max_retries})...")
                 time.sleep(1.0 * (attempt + 1))  # 递增延迟
             else:
-                # 所有重试失败，返回友好降级提示（包含错误摘要和检索到的引用摘要）
-                return generate_friendly_fallback(query, error=str(e), citations=citations)
+                # 所有重试失败，直接抛出原始异常
+                raise Exception(f"LLM 调用失败: {str(e)}") from e
 
     # 理论上不会到这里
-    return generate_friendly_fallback(query, error=str(last_error) if last_error else "未知错误", citations=citations)
-
-
-def generate_friendly_fallback(query: str, error: str = None, citations: List[Dict] = None) -> str:
-    """
-    生成友好的降级提示（当 LLM 不可用时）
-
-    Args:
-        query: 用户问题
-        error: 错误信息（可选）
-
-    Returns:
-        友好的降级响应
-    """
-    # 更友好且实用的降级提示：说明原因、提供简要诊断信息，列出检索到的顶级引用摘要，并给出可执行建议
-    lines = []
-    lines.append("## 📚 基于检索到的参考资料（已在页面上列出）")
-
-    if error:
-        lines.append(f"⚠️ 系统提示：无法调用 LLM 服务 — {error}")
-    else:
-        lines.append("⚠️ 系统提示：LLM 服务暂不可用，无法生成自然语言回答。")
-
-    # 如果有引用，列出前 3 条简短摘要，帮助用户快速获取信息
-    if citations:
-        lines.append("")
-        lines.append("以下为本次检索命中的摘要（仅展示前 3 条）：")
-        for cite in citations[:3]:
-            idx = cite.get("index")
-            src = cite.get("source")
-            snippet = cite.get("content", "").replace("\n", " ")[:200]
-            lines.append(f"- [{idx}] {src}: {snippet}...")
-
-    lines.append("")
-    lines.append("可执行操作：")
-    lines.append("1. 稍后重试（网络或服务短暂问题常能自愈）。")
-    lines.append("2. 如果需要立刻答案，请直接查看上方来源并拼接原文段落。")
-    lines.append("3. 检查服务配置：环境变量或 config.yaml 中的 api_services.llm.api_key / api_url。")
-    lines.append("4. 查看启动日志（控制台）以获取完整的错误堆栈，或联系管理员提供日志。")
-    lines.append("")
-    lines.append("提示：你也可以尝试简化问题或去掉部分上下文后重试，以减少请求体大小。")
-
-    return "\n\n".join(lines)
+    raise Exception(f"LLM 调用失败: {str(last_error) if last_error else '未知错误'}")
 
 
 def main():
