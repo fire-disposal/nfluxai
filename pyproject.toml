@@ -3,7 +3,7 @@ name = "nflux-ai"
 version = "0.1.0"
 description = "护理教材 AI 问答系统 - 基于 RAG 的护理学教材智能问答原型"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.10,<3.14"
 dependencies = [
     "chromadb>=0.5.0",
     "langchain>=0.3.0",
