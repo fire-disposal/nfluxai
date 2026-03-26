@@ -195,8 +195,13 @@ class NursingRetriever:
             except Exception as e:
                 print(f"⚠️ Rerank 失败: {e}")
 
-        # 排序并截取
-        docs_with_scores.sort(key=lambda x: x[1], reverse=True)
+        # 排序并截取：
+        # - 向量检索分数通常是“距离”，越小越相关
+        # - Rerank 分数通常是“相关性”，越大越相关
+        if self.reranker:
+            docs_with_scores.sort(key=lambda x: x[1], reverse=True)
+        else:
+            docs_with_scores.sort(key=lambda x: x[1])
         return docs_with_scores[:k]
 
     def format_citation(self, doc: Document, index: int = 0) -> str:
