@@ -12,15 +12,13 @@ import os
 import re
 import json
 import hashlib
+import sys
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 
 import yaml
-from langchain_chroma import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_core.documents import Document
 
 from medical_terms import (
     find_diseases_in_text,
@@ -37,6 +35,21 @@ def setup_huggingface_mirror(mirror_url: Optional[str] = None):
         mirror_url = os.getenv("HF_ENDPOINT", "https://hf-mirror.com")
     os.environ["HF_ENDPOINT"] = mirror_url
     print(f"🌐 HuggingFace 镜像: {mirror_url}")
+
+
+def ensure_python_compatibility():
+    """检查当前 Python 版本是否与依赖兼容。"""
+    version = sys.version_info
+    if version >= (3, 14):
+        current = f"{version.major}.{version.minor}.{version.micro}"
+        raise RuntimeError(
+            "当前 Python 版本与 Chroma 生态依赖不兼容。\n"
+            f"检测到: Python {current}\n"
+            "请使用 Python 3.10-3.13（推荐 3.12）后重试：\n"
+            "  uv python install 3.12\n"
+            "  uv sync --python 3.12\n"
+            "  uv run --python 3.12 python main.py --run"
+        )
 
 
 # 配置
@@ -467,6 +480,14 @@ class NursingIndexBuilder:
 
 def create_vectorstore(chunks: List[SemanticChunk], config: Dict[str, Any]):
     """创建向量数据库"""
+    ensure_python_compatibility()
+    try:
+        from langchain_chroma import Chroma
+        from langchain_community.embeddings import HuggingFaceEmbeddings
+        from langchain_core.documents import Document
+    except Exception as exc:
+        raise RuntimeError("向量库依赖加载失败，请确认 Python 与依赖版本兼容。") from exc
+
     # 设置 HuggingFace 镜像（国内加速）
     mirror = config.get("huggingface_mirror")
     if mirror or os.getenv("HF_ENDPOINT"):
@@ -518,6 +539,7 @@ def create_vectorstore(chunks: List[SemanticChunk], config: Dict[str, Any]):
     if DATA_DIR.exists():
         import shutil
         shutil.rmtree(DATA_DIR)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     
     vectorstore = Chroma.from_documents(
         documents=documents,
@@ -556,6 +578,8 @@ def save_index(index_data: Dict):
 
 def main():
     """主函数"""
+    ensure_python_compatibility()
+
     print("=" * 60)
     print("护理教材数据导入 V2 - 语义分块")
     print("=" * 60)

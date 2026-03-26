@@ -6,7 +6,7 @@
 
 ### 1. 环境准备
 
-推荐 Python 3.14（项目已升级并按 3.14 适配）：
+推荐 Python 3.12（支持 3.10-3.13）：
 
 ```bash
 python3 --version
@@ -23,6 +23,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ```bash
 cd /workspace/nfluxai
 uv sync
+
+# 如本机存在多个 Python 版本，建议显式指定 3.12
+uv sync --python 3.12
 ```
 
 ### 3. （可选）手动导入数据
@@ -238,6 +241,16 @@ rerankers                 # Rerank 模型
 ```bash
 # 重新导入数据
 uv run python src/ingest.py
+```
+
+### 问题：`typing.ByteString` / Chroma 相关导入报错
+
+这是 Python 3.14 与部分 Chroma 依赖暂不兼容导致。请切换到 Python 3.12：
+
+```bash
+uv python install 3.12
+uv sync --python 3.12
+uv run --python 3.12 python main.py --run
 ```
 
 ### 问题：LLM 服务不可用
