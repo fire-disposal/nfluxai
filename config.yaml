@@ -4,17 +4,14 @@
 # ===========================
 # 嵌入模型配置 (国内镜像)
 # ===========================
-# 推荐模型:
-#   - BAAI/bge-large-zh-v1.5    (推荐，效果最好)
-#   - BAAI/bge-base-zh-v1.5     (平衡)
-#   - shibing624/text2vec-base-chinese (轻量)
-embedding_model: "BAAI/bge-large-zh-v1.5"
-embedding_device: "cpu"           # 或 "cuda" 使用 GPU
 embedding_batch_size: 32
 
-# HuggingFace 镜像 (国内加速)
-# 可选: "https://hf-mirror.com" 或留空使用官方源
-huggingface_mirror: "https://hf-mirror.com"
+# Silicon Flow 在线嵌入配置（精简）
+# 请填写你的 Silicon Flow 嵌入端点并配置 API Key（或使用环境变量 SILICON_FLOW_API_KEY）
+use_silicon_flow: true
+silicon_flow_api_url: "https://api.siliconflow.example/v1/embeddings"  # 请替换为实际 Silicon Flow API 地址
+silicon_flow_api_key: ""  # 或设置环境变量 SILICON_FLOW_API_KEY
+silicon_flow_model: "BAAI/bge-m3"  # 远程嵌入模型，已指定为 BAAI/bge-m3
 
 # ===========================
 # 分块配置
@@ -27,8 +24,18 @@ chunk_overlap: 100                # 块重叠
 # ===========================
 top_k: 5                          # 默认返回数量
 rerank: true                      # 是否启用 Rerank
-rerank_model: "BAAI/bge-reranker-large"  # Rerank 模型
+rerank_model: "BAAI/bge-reranker-large"  # Rerank 模型（名称仅用于记录/远程服务选择）
 rerank_top_n: 20                  # Rerank 筛选数量
+
+# ================ Rerank 重排序（远程服务） ==================
+# 系统默认不在本地下载大型 rerank 模型，而是通过 HTTP 调用远程重排序服务。
+# 配置说明：
+# - rerank_use_remote: 是否使用远程 rerank 服务（true/false）
+# - rerank_api_url: 远程 rerank 服务地址（例如 https://my-rerank.example/api/rank）
+# - rerank_api_key: 如果服务需要身份认证，可在此填写或通过环境变量 RERANK_API_KEY 提供
+rerank_use_remote: true
+rerank_api_url: ""         # 例如: "https://rerank.example/v1/rank"，未配置则不会尝试远程 rerank
+rerank_api_key: ""
 
 # ===========================
 # LLM 配置 - DeepSeek API
@@ -42,39 +49,6 @@ llm:
   max_tokens: 2048
 
 # ===========================
-# 备选 LLM 配置
-# ===========================
-# 如需使用其他 LLM，取消注释相应配置:
-
-# Ollama 本地模型 (无需 API Key)
-# llm:
-#   provider: "ollama"
-#   model: "qwen2.5:7b"
-#   temperature: 0.7
-#   max_tokens: 2048
-
-# 智谱 GLM
-# llm:
-#   provider: "zhipu"
-#   model: "glm-4-flash"
-#   api_key: ""
-#   api_base: "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-#   temperature: 0.7
-#   max_tokens: 2048
-
-# 通义千问
-# llm:
-#   provider: "qwen"
-#   model: "qwen-turbo"
-#   api_key: ""
-#   api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-#   temperature: 0.7
-#   max_tokens: 2048
-
-# ===========================
 # 环境变量说明
 # ===========================
 # DEEPSEEK_API_KEY: DeepSeek API 密钥
-# ZHIPU_API_KEY: 智谱 API 密钥
-# DASHSCOPE_API_KEY: 阿里云 DashScope API 密钥
-# HF_ENDPOINT: HuggingFace 镜像地址 (覆盖 huggingface_mirror)

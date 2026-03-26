@@ -53,6 +53,47 @@ rerank_model: "BAAI/bge-reranker-large"
 rerank_top_n: 20
 ```
 
+### Rerank（远程服务，项目默认）
+
+为避免在本地下载大型重排序模型，项目默认通过远程 HTTP 服务进行重排序。
+
+推荐配置（`config.yaml`）:
+
+```yaml
+# 启用远程 rerank
+rerank: true
+rerank_use_remote: true
+rerank_api_url: "https://rerank.example/v1/rank"
+rerank_api_key: ""          # 或通过环境变量 RERANK_API_KEY 提供
+rerank_model: "BAAI/bge-reranker-large"  # 仅作为远程服务的 model 参数
+rerank_top_n: 20
+```
+
+远程 rerank 服务接口说明（期望格式）:
+
+- 请求 (POST JSON):
+
+```json
+{
+  "model": "BAAI/bge-reranker-large",
+  "query": "你的查询文本",
+  "docs": ["文档1内容", "文档2内容", ...],
+  "doc_ids": [0,1,2,...]
+}
+```
+
+- 成功返回示例（两种支持格式）:
+
+```json
+{ "scores": [0.95, 0.83, ...] }
+```
+或
+```json
+{ "ranked": [{"doc_id":0, "score":0.95}, {"doc_id":1, "score":0.83}] }
+```
+
+如果远程服务不可用，系统会自动回退到纯向量检索（不再尝试本地下载 rerank 模型）。
+
 ### 3. LLM 配置 (DeepSeek API)
 
 **获取 API Key**: https://platform.deepseek.com/

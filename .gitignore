@@ -16,3 +16,4 @@ data/chroma_db/
 .idea/
 .vscode/
 *.swp
+.env

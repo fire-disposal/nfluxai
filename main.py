@@ -13,6 +13,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+# 可选：如果安装了 python-dotenv，会自动加载项目根目录下的 .env 文件
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    print("⚙️ 已加载 .env（如果存在）")
+except Exception:
+    pass
+
 
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent

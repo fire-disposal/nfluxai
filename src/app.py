@@ -421,6 +421,9 @@ def render_chat_interface():
         with st.chat_message("assistant"):
             with st.spinner("🔍 正在检索教材资料..."):
                 try:
+                    # 预先计算 msg_id，确保异常分支也能引用
+                    msg_id = len(st.session_state.messages)
+
                     # 检索
                     context, citations = retriever.get_context_for_llm(
                         query=prompt,
@@ -429,7 +432,6 @@ def render_chat_interface():
                     )
 
                     # 保存引用到会话状态（与消息关联）
-                    msg_id = len(st.session_state.messages)
                     st.session_state.message_citations[msg_id] = citations
 
                     # 显示引用预览（网格布局，无数量限制）
@@ -441,7 +443,7 @@ def render_chat_interface():
                         for cite in citations:
                             st.markdown(
                                 f"<div class='reference-item'>[{cite['index']}] {cite['source']}</div>",
-                                unsafe_allow_html=True
+                                unsafe_allow_html=True,
                             )
                         st.markdown("</div>", unsafe_allow_html=True)
                         st.markdown("---")
@@ -481,8 +483,8 @@ def render_chat_interface():
                         "id": msg_id,
                     })
 
-            # 不使用 st.rerun()，让 Streamlit 自然重新渲染
-            # st.rerun() 会导致页面闪烁和滚动位置重置
+        # 不使用 st.rerun()，让 Streamlit 自然重新渲染
+        # st.rerun() 会导致页面闪烁和滚动位置重置
 
 
 def call_llm(context: str, query: str, citations: List[Dict]) -> str:

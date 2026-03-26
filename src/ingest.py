@@ -19,6 +19,7 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 
 import yaml
+import requests
 
 from medical_terms import (
     find_diseases_in_text,
@@ -29,12 +30,7 @@ from medical_terms import (
 )
 
 
-def setup_huggingface_mirror(mirror_url: Optional[str] = None):
-    """设置 HuggingFace 镜像加速（国内用户）"""
-    if mirror_url is None:
-        mirror_url = os.getenv("HF_ENDPOINT", "https://hf-mirror.com")
-    os.environ["HF_ENDPOINT"] = mirror_url
-    print(f"🌐 HuggingFace 镜像: {mirror_url}")
+
 
 
 def ensure_python_compatibility():
@@ -483,28 +479,92 @@ def create_vectorstore(chunks: List[SemanticChunk], config: Dict[str, Any]):
     ensure_python_compatibility()
     try:
         from langchain_chroma import Chroma
-        from langchain_community.embeddings import HuggingFaceEmbeddings
         from langchain_core.documents import Document
     except Exception as exc:
         raise RuntimeError("向量库依赖加载失败，请确认 Python 与依赖版本兼容。") from exc
 
-    # 设置 HuggingFace 镜像（国内加速）
-    mirror = config.get("huggingface_mirror")
-    if mirror or os.getenv("HF_ENDPOINT"):
-        setup_huggingface_mirror(mirror)
-
-    print("\n🔄 加载嵌入模型...")
+    print("\n🔄 加载嵌入模型（Silicon Flow 远程嵌入）...")
     model_name = config.get("embedding_model", "BAAI/bge-large-zh-v1.5")
     device = config.get("embedding_device", "cpu")
-    
+    use_remote = config.get("use_remote_embeddings", True)
+    use_silicon = config.get("use_silicon_flow", True)
+    silicon_api = config.get("silicon_flow_api_url") or os.getenv("SILICON_FLOW_API_URL")
+    silicon_key = config.get("silicon_flow_api_key") or os.getenv("SILICON_FLOW_API_KEY")
+    silicon_model = config.get("silicon_flow_model") or model_name
+
     print(f"   模型: {model_name}")
     print(f"   设备: {device}")
+    print(f"   use_remote_embeddings: {use_remote} (use_silicon_flow={use_silicon})")
 
-    embeddings = HuggingFaceEmbeddings(
-        model_name=model_name,
-        model_kwargs={"device": device},
-        encode_kwargs={"normalize_embeddings": True},
-    )
+    class SiliconFlowEmbeddings:
+        """Silicon Flow 在线嵌入适配器。
+
+        期望 API 接受 JSON: {"model": "<model>", "input": ["text1", ...]} 并返回
+        {"data": [{"embedding": [...]}, ...]} 或类似格式。
+        请根据供应商文档调整 `silicon_api`。
+        """
+        def __init__(self, api_url: str, api_key: Optional[str], model: str):
+            self.api_url = api_url
+            self.api_key = api_key
+            self.model = model
+
+        def _call(self, inputs: List[str]):
+            if not self.api_url:
+                raise RuntimeError("Silicon Flow API 地址未配置(silicon_flow_api_url)。")
+            headers = {"Content-Type": "application/json"}
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key}"
+
+            # API 有时接受单个字符串作为 input，也接受列表；匹配示例优先使用单字符串
+            payload_input = inputs[0] if len(inputs) == 1 else inputs
+            payload = {"model": self.model, "input": payload_input}
+
+            try:
+                resp = requests.post(self.api_url, json=payload, headers=headers, timeout=120)
+            except requests.RequestException as e:
+                raise RuntimeError(
+                    "Silicon Flow 请求失败：无法连接到嵌入服务。请检查 `silicon_flow_api_url` 配置、网络连接和 `SILICON_FLOW_API_KEY`。"
+                ) from e
+
+            try:
+                data = resp.json()
+            except Exception:
+                raise RuntimeError(f"Silicon Flow 返回非 JSON 响应：{resp.status_code} {resp.text}")
+
+            # 解析常见的返回结构，兼容你提供的示例：{"data":[{"object":"embedding","embedding":[...],"index":...}],...}
+            items = None
+            if isinstance(data, dict):
+                if "data" in data:
+                    items = data["data"]
+                elif "embedding" in data:
+                    items = [data]
+            elif isinstance(data, list):
+                items = data
+
+            if items is None:
+                raise RuntimeError(f"未知的 Silicon Flow Embeddings 返回格式: {data}")
+
+            emb = []
+            for it in items:
+                if isinstance(it, dict) and "embedding" in it:
+                    emb.append(it["embedding"])
+                elif isinstance(it, list) and all(isinstance(x, (int, float)) for x in it):
+                    emb.append(it)
+                else:
+                    raise RuntimeError("无法解析 Silicon Flow 返回的 embedding 格式")
+
+            return emb
+
+        def embed_documents(self, texts: List[str]) -> List[List[float]]:
+            return self._call(texts)
+
+        def embed_query(self, text: str) -> List[float]:
+            return self._call([text])[0]
+
+    if use_remote and use_silicon:
+        embeddings = SiliconFlowEmbeddings(api_url=silicon_api, api_key=silicon_key, model=silicon_model)
+    else:
+        raise RuntimeError("当前仅支持使用 Silicon Flow 远程嵌入。请在 `config.yaml` 中启用 `use_silicon_flow` 并配置 `silicon_flow_api_url` 与 API key。")
     
     print("📦 创建 ChromaDB 向量存储...")
     
@@ -535,21 +595,42 @@ def create_vectorstore(chunks: List[SemanticChunk], config: Dict[str, Any]):
         )
         documents.append(doc)
     
-    # 删除旧数据
+    # 删除旧数据并逐批写入，避免在 CPU 上一次性计算大量嵌入导致长时间无响应
     if DATA_DIR.exists():
         import shutil
         shutil.rmtree(DATA_DIR)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    
-    vectorstore = Chroma.from_documents(
-        documents=documents,
-        embedding=embeddings,
-        persist_directory=str(DATA_DIR),
-        collection_name="nursing_textbooks",
-    )
-    
-    print(f"💾 已保存到：{DATA_DIR}")
-    return vectorstore
+
+    batch_size = int(config.get("embedding_batch_size", 128))
+    total = len(documents)
+    if total == 0:
+        print("⚠️ 无文档需入库，跳过向量库创建。")
+        return None
+
+    print(f"📦 分批写入 ChromaDB（batch_size={batch_size}）... 总文档: {total}")
+    vectorstore = None
+    try:
+        for i in range(0, total, batch_size):
+            batch = documents[i : i + batch_size]
+            start = i + 1
+            end = min(i + batch_size, total)
+            print(f"  - 正在处理文档 {start}-{end} / {total} ...")
+
+            # 使用 from_documents 按批次写入（Chroma 会在 persist_directory 下追加）
+            vectorstore = Chroma.from_documents(
+                documents=batch,
+                embedding=embeddings,
+                persist_directory=str(DATA_DIR),
+                collection_name="nursing_textbooks",
+            )
+
+        print(f"💾 已保存到：{DATA_DIR}")
+        return vectorstore
+    except Exception as e:
+        raise RuntimeError(
+            "向量库创建失败：在将文档写入 Chroma 时出错。"
+            " 请检查模型是否在 CPU 上耗时较长，或使用更小的嵌入模型/启用 GPU。"
+        ) from e
 
 
 def save_chunks(chunks: List[SemanticChunk]):
