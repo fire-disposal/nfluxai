@@ -581,12 +581,12 @@ def generate_friendly_fallback(query: str, error: str = None) -> str:
 当前 LLM 服务暂时不可用，您可以：
 
 1. **检查 LLM 服务状态**
-   - 确认 Ollama 服务是否运行：`ollama list`
-   - 启动服务：`ollama serve`
+   - 检查 `api_services.llm.api_url` 是否可访问
+   - 检查 `api_services.llm.api_key` 或环境变量是否正确配置
 
 2. **检查配置**
-   - 查看 `config.yaml` 中的 LLM 配置
-   - 确认模型已下载：`ollama pull qwen2.5:7b`
+   - 查看 `config.yaml` 中 `api_services` 的 LLM/Embedding/Rerank 配置
+   - 确认所填模型名称与服务端支持的模型一致
 
 3. **替代方案**
    - 以上已列出相关教材参考资料

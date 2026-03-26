@@ -8,22 +8,15 @@
 - 国内镜像加速
 """
 
-import os
 import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
 import yaml
-import requests
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 
-from medical_terms import (
-    find_diseases_in_text,
-    find_diagnoses_in_text,
-    find_symptoms_in_text,
-    classify_content_type,
-)
+from model_clients import ApiTextEmbeddings, ApiReranker, get_embedding_service_config, get_rerank_service_config
 
 
 # 配置
@@ -57,14 +50,7 @@ class NursingRetriever:
             with open(config_path, "r", encoding="utf-8") as f:
                 return yaml.safe_load(f)
 
-        return {
-            "embedding_model": "BAAI/bge-large-zh-v1.5",
-            "embedding_device": "cpu",
-            "top_k": 5,
-            "rerank": True,
-            "rerank_model": "BAAI/bge-reranker-large",
-            "rerank_top_n": 20,
-        }
+        return {"top_k": 5}
 
     def _load_index(self):
         """加载索引文件"""
@@ -78,78 +64,11 @@ class NursingRetriever:
         if self._initialized:
             return
 
-        print("🔄 加载嵌入模型（Silicon Flow 远程嵌入）...")
-        model_name = self.config.get("embedding_model", "BAAI/bge-large-zh-v1.5")
-        device = self.config.get("embedding_device", "cpu")
-        
-        print(f"   模型: {model_name}")
-        print(f"   设备: {device}")
-        use_remote = self.config.get("use_remote_embeddings", True)
-        use_silicon = self.config.get("use_silicon_flow", True)
-        silicon_api = self.config.get("silicon_flow_api_url") or os.getenv("SILICON_FLOW_API_URL")
-        silicon_key = self.config.get("silicon_flow_api_key") or os.getenv("SILICON_FLOW_API_KEY")
-        silicon_model = self.config.get("silicon_flow_model") or model_name
-
-        if use_remote and use_silicon:
-            class SiliconFlowEmbeddings:
-                def __init__(self, api_url: str, api_key: Optional[str], model: str):
-                    self.api_url = api_url
-                    self.api_key = api_key
-                    self.model = model
-
-                def _call(self, inputs: List[str]):
-                    if not self.api_url:
-                        raise RuntimeError("Silicon Flow API 地址未配置(silicon_flow_api_url)。")
-                    headers = {"Content-Type": "application/json"}
-                    if self.api_key:
-                        headers["Authorization"] = f"Bearer {self.api_key}"
-                        # 支持单字符串或多文本输入
-                        payload_input = inputs[0] if len(inputs) == 1 else inputs
-                        payload = {"model": self.model, "input": payload_input}
-                        try:
-                            resp = requests.post(self.api_url, json=payload, headers=headers, timeout=120)
-                        except requests.RequestException as e:
-                            raise RuntimeError(
-                                "Silicon Flow 请求失败：无法连接到嵌入服务。请检查 `silicon_flow_api_url` 配置、网络连接和 `SILICON_FLOW_API_KEY`。"
-                            ) from e
-
-                        try:
-                            data = resp.json()
-                        except Exception:
-                            raise RuntimeError(f"Silicon Flow 返回非 JSON 响应：{resp.status_code} {resp.text}")
-
-                        items = None
-                        if isinstance(data, dict):
-                            if "data" in data:
-                                items = data["data"]
-                            elif "embedding" in data:
-                                items = [data]
-                        elif isinstance(data, list):
-                            items = data
-
-                        if items is None:
-                            raise RuntimeError(f"未知的 Silicon Flow Embeddings 返回格式: {data}")
-
-                        emb = []
-                        for it in items:
-                            if isinstance(it, dict) and "embedding" in it:
-                                emb.append(it["embedding"])
-                            elif isinstance(it, list) and all(isinstance(x, (int, float)) for x in it):
-                                emb.append(it)
-                            else:
-                                raise RuntimeError("无法解析 Silicon Flow 返回的 embedding 格式")
-
-                        return emb
-
-                def embed_documents(self, texts: List[str]) -> List[List[float]]:
-                    return self._call(texts)
-
-                def embed_query(self, text: str) -> List[float]:
-                    return self._call([text])[0]
-
-            self.embeddings = SiliconFlowEmbeddings(api_url=silicon_api, api_key=silicon_key, model=silicon_model)
-        else:
-            raise RuntimeError("当前仅支持使用 Silicon Flow 远程嵌入。请在 `config.yaml` 中启用 `use_silicon_flow` 并配置 `silicon_flow_api_url` 与 API key。")
+        embedding_cfg = get_embedding_service_config(self.config)
+        print("🔄 初始化嵌入 API 服务...")
+        print(f"   provider: {embedding_cfg.get('provider')}")
+        print(f"   model: {embedding_cfg.get('model')}")
+        self.embeddings = ApiTextEmbeddings(embedding_cfg)
 
         print("📂 加载向量数据库...")
         self.vectorstore = Chroma(
@@ -161,62 +80,17 @@ class NursingRetriever:
         # 加载索引
         self._load_index()
 
-        # 可选：加载 Rerank 模型
-            # 可选：使用远程 Rerank 服务（默认）
-            # 说明：为避免在本地下载大型重排序模型，默认通过 HTTP 调用远程重排序服务。
-            if self.config.get("rerank", True):
-                use_remote = self.config.get("rerank_use_remote", True)
-                rerank_api = self.config.get("rerank_api_url") or os.getenv("RERANK_API_URL")
-                rerank_key = self.config.get("rerank_api_key") or os.getenv("RERANK_API_KEY")
-                rerank_model = self.config.get("rerank_model", "BAAI/bge-reranker-large")
-
-                if use_remote and rerank_api:
-                    class RemoteReranker:
-                        def __init__(self, api_url: str, api_key: Optional[str], model: str):
-                            self.api_url = api_url
-                            self.api_key = api_key
-                            self.model = model
-
-                        def rank(self, query: str, docs: List[Document], doc_ids: List[int]):
-                            payload = {
-                                "model": self.model,
-                                "query": query,
-                                "docs": [d.page_content for d in docs],
-                                "doc_ids": doc_ids,
-                            }
-                            headers = {"Content-Type": "application/json"}
-                            if self.api_key:
-                                headers["Authorization"] = f"Bearer {self.api_key}"
-
-                            try:
-                                resp = requests.post(self.api_url, json=payload, headers=headers, timeout=30)
-                                resp.raise_for_status()
-                                data = resp.json()
-                            except requests.RequestException as e:
-                                raise RuntimeError(f"远程 Rerank 请求失败: {e}") from e
-
-                            # 期望返回格式: { "scores": [float, ...] } 或 { "ranked": [{"doc_id": i, "score": s}, ...] }
-                            if isinstance(data, dict) and "scores" in data:
-                                scores = data["scores"]
-                                if len(scores) != len(docs):
-                                    raise RuntimeError("远程 Rerank 返回的分数数量与文档数量不匹配")
-                                return [SimpleNamespace(doc_id=i, score=float(s)) for i, s in enumerate(scores)]
-                            elif isinstance(data, dict) and "ranked" in data:
-                                ranked = data["ranked"]
-                                return [SimpleNamespace(doc_id=int(item["doc_id"]), score=float(item["score"])) for item in ranked]
-                            else:
-                                raise RuntimeError(f"无法解析远程 Rerank 返回数据: {data}")
-
-                    try:
-                        print(f"🔄 使用远程 Rerank 服务: {rerank_api} (model={rerank_model})")
-                        self.reranker = RemoteReranker(rerank_api, rerank_key, rerank_model)
-                    except Exception as e:
-                        print(f"⚠️ 初始化远程 Rerank 客户端失败: {e}，将使用纯向量检索")
-                        self.reranker = None
-                else:
-                    # 未配置远程 Rerank：不尝试本地下载 rerank 模型，直接回退到纯向量检索
-                    print("⚠️ 未配置远程 Rerank（RERANK_API_URL），且已禁用本地模型下载。将使用纯向量检索")
-                    self.reranker = None
+        rerank_cfg = get_rerank_service_config(self.config)
+        if rerank_cfg.get("enabled", True) and rerank_cfg.get("api_url"):
+            try:
+                print(f"🔄 初始化重排序 API 服务: {rerank_cfg.get('api_url')} (model={rerank_cfg.get('model')})")
+                self.reranker = ApiReranker(rerank_cfg)
+            except Exception as e:
+                print(f"⚠️ 初始化重排序服务失败: {e}，将使用纯向量检索")
+                self.reranker = None
+        else:
+            print("⚠️ 未启用或未配置重排序 API 服务，将使用纯向量检索")
+            self.reranker = None
 
         self._initialized = True
         print("✅ 检索器初始化完成")
@@ -242,7 +116,7 @@ class NursingRetriever:
             self.initialize()
 
         k = top_k or self.config.get("top_k", 5)
-        rerank_top_n = self.config.get("rerank_top_n", 20)
+        rerank_top_n = get_rerank_service_config(self.config).get("top_n", 20)
 
         # 构建过滤器
         filter_dict = None
