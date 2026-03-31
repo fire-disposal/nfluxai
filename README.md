@@ -39,10 +39,10 @@ uv run python src/ingest.py
 ### 4. 启动应用
 
 ```bash
-# 方式一：使用启动脚本
-bash start.sh
+# 方式一：使用 Python 启动入口
+python start.py
 
-# 方式二：直接运行
+# 方式二：直接运行主入口
 uv run python main.py --run
 ```
 
@@ -72,7 +72,7 @@ nflux_ai/
 │   └── copy_textbooks.py # 教材拷贝脚本
 ├── config.yaml           # 配置文件
 ├── main.py               # 主入口点
-├── start.sh              # 快速启动脚本
+├── start.py              # 快速启动入口（Python）
 └── pyproject.toml        # 项目依赖
 ```
 
@@ -178,6 +178,8 @@ llm:
   api_key: "sk-xxx"
   model: "gpt-3.5-turbo"
 ```
+
+> 建议通过环境变量注入真实密钥，不要将密钥明文写入仓库。
 
 ---
 
