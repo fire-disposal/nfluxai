@@ -194,7 +194,7 @@ def test_app_structure():
         "src/medical_terms.py",
         "config.yaml",
         "main.py",
-        "start.sh",
+        "start.py",
     ]
     
     all_exist = True

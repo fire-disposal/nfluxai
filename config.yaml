@@ -10,6 +10,8 @@ chunk_overlap: 100
 # 检索配置
 # ===========================
 top_k: 5
+# 是否在启动阶段执行外部服务健康检查（关闭可减少首屏等待）
+startup_health_checks: false
 
 # ===========================
 # API 服务统一配置
@@ -19,7 +21,7 @@ api_services:
     provider: "deepseek"
     model: "deepseek-chat"
     api_url: "https://api.deepseek.com/v1/chat/completions"
-    api_key: "sk-d8b25bc25e2f4192b39ee3bf4f69eaef"
+    api_key: ""  # 建议通过环境变量注入
     api_key_env: "DEEPSEEK_API_KEY"
     temperature: 0.7
     max_tokens: 2048
@@ -29,7 +31,7 @@ api_services:
     provider: "siliconflow"
     model: "BAAI/bge-m3"
     api_url: "https://api.siliconflow.cn/v1/embeddings"  # 替换为真实地址
-    api_key: "sk-wkduxtkeztckkquyroholzjpbrxvwjurquajrltjylxiqyak"
+    api_key: ""  # 建议通过环境变量注入
     api_key_env: "SILICON_FLOW_API_KEY"
     timeout: 120
     batch_size: 32
@@ -39,7 +41,7 @@ api_services:
     provider: "siliconflow"
     model: "BAAI/bge-reranker-v2-m3"
     api_url: "https://api.siliconflow.cn/v1/rerank"
-    api_key: "sk-wkduxtkeztckkquyroholzjpbrxvwjurquajrltjylxiqyak"
+    api_key: ""  # 建议通过环境变量注入
     api_key_env: "SILICON_FLOW_API_KEY"
     timeout: 30
     top_n: 20
